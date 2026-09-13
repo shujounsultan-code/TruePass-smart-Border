@@ -3,10 +3,17 @@ sensor.py — TruePass
 Simulates the "sensor" layer at the border crossing lane.
 
 Behavior:
-1. Tries to capture a live frame from the laptop webcam using OpenCV.
-2. If no camera is available (or capture fails), falls back to reading
-   a sample image from the local `data/sample_images/` folder — this
-   simulates a vehicle/passenger arriving at the checkpoint.
+1. Opens a live camera preview window so you can see what the camera sees.
+2. Capture only happens when YOU press a key — the camera does NOT
+   capture automatically or continuously. This protects the privacy
+   of anyone in frame until a capture is explicitly requested
+   (simulating "a vehicle has arrived, now capture").
+3. If no camera is available (or you cancel), falls back to reading
+   a sample image from the local `data/sample_images/` folder.
+
+Controls during preview:
+   - Press SPACE (or 's')  -> capture this frame
+   - Press 'q'             -> cancel and use a fallback sample image
 
 The output of this module is always a single image (as a NumPy array)
 that gets passed forward to detection.py.
@@ -22,9 +29,12 @@ SAMPLE_IMAGES_DIR = os.path.join(os.path.dirname(__file__), "data", "sample_imag
 
 def capture_from_webcam(camera_index: int = 0):
     """
-    Try to grab a single frame from a connected webcam.
-    Returns the frame (BGR image) on success, or None if no camera
-    is available / the capture failed.
+    Opens a live preview window and waits for the user to press a key
+    to capture a single frame. Nothing is captured or saved until then.
+
+    Returns the captured frame (BGR image) on success, or None if:
+      - no camera is available, or
+      - the user pressed 'q' to cancel.
     """
     cap = cv2.VideoCapture(camera_index)
 
@@ -32,13 +42,28 @@ def capture_from_webcam(camera_index: int = 0):
         cap.release()
         return None
 
-    ret, frame = cap.read()
+    captured_frame = None
+    window_name = "TruePass - Press SPACE to capture, Q to cancel"
+
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            break
+
+        cv2.imshow(window_name, frame)
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord(' ') or key == ord('s'):
+            captured_frame = frame.copy()
+            break
+        elif key == ord('q'):
+            captured_frame = None
+            break
+
     cap.release()
+    cv2.destroyAllWindows()
 
-    if not ret or frame is None:
-        return None
-
-    return frame
+    return captured_frame
 
 
 def load_sample_image():
@@ -66,21 +91,23 @@ def load_sample_image():
     path = os.path.join(SAMPLE_IMAGES_DIR, chosen)
     frame = cv2.imread(path)
 
-    print(f"[sensor] No camera detected — using sample image: {chosen}")
+    print(f"[sensor] Using sample image: {chosen}")
     return frame
 
 
 def get_frame(camera_index: int = 0):
     """
     Main entry point used by main.py.
-    Tries the webcam first; falls back to a sample image automatically.
+    Shows a live preview and waits for the user to manually capture.
+    Falls back to a sample image if no camera is available or the
+    user cancels the capture.
     """
     frame = capture_from_webcam(camera_index)
 
     if frame is None:
         frame = load_sample_image()
     else:
-        print("[sensor] Frame captured from live webcam.")
+        print("[sensor] Frame captured manually from live webcam.")
 
     return frame
 
